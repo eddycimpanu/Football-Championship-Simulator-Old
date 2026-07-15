@@ -22,6 +22,10 @@ public class Player extends Person {
         if (this.currentTeam != null) {
             this.currentTeam.removePlayer(this);
         }
+        if (newTeam.isKitNumberTaken(this.kitNumber)) {
+            int freeNumber = newTeam.findFreeKitNumber();
+            this.setKitNumber(freeNumber);
+        }
         newTeam.addPlayer(this);
         this.currentTeam = newTeam;
     }
@@ -39,7 +43,10 @@ public class Player extends Person {
     }
 
     public void setKitNumber(int kitNumber) {
-        this.kitNumber = kitNumber;
+        if(this.currentTeam.isKitNumberTaken(kitNumber) == false) {
+            this.kitNumber = kitNumber;
+        }
+        else throw new IllegalStateException("The kit number "+ kitNumber +" is already used");
     }
 
     public Team getCurrentTeam() {
