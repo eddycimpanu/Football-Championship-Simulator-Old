@@ -5,8 +5,8 @@ public class Card extends MatchEvent {
     private final Person offender;
     private final CardType type;
 
-    public Card(int minute, Person offender, CardType type) {
-        super(minute);
+    public Card(int minute, Team team,  Person offender, CardType type) {
+        super(minute, team);
         this.offender = offender;
         this.type = type;
     }

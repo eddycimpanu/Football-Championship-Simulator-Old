@@ -5,8 +5,8 @@ public class Goal extends MatchEvent {
     private final Player scorer;
     private final Player assistant;
 
-    public Goal(int minute, Player scorer, Player assistant) {
-        super(minute);
+    public Goal(int minute, Team team, Player scorer, Player assistant) {
+        super(minute, team);
         this.scorer = scorer;
         this.assistant = assistant;
     }
