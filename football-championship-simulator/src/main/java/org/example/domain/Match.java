@@ -65,18 +65,20 @@ public class Match {
         this.isFinished = false;
     }
 
-
     public void simulateMatch() {
         PhaseState currentState = PhaseState.KICKOFF;
         Team attackingTeam = homeTeam;
         Team defendingTeam = awayTeam;
         this.currentMinute = 0;
+        double stoppageTime = 0;
         PhaseSimulator phaseSimulator = new PhaseSimulator();
 
         while (currentMinute < 90) {
             PhaseState finalState = phaseSimulator.simulatePhase(currentState, attackingTeam, defendingTeam, this);
+            int duration = phaseSimulator.decidePhaseDuration(finalState);
 
-            currentMinute += phaseSimulator.decidePhaseDuration(finalState);
+            currentMinute += duration;
+            stoppageTime += calculateStoppageContribution(finalState, duration);
 
             if (isPossessionChange(finalState)) {
                 Team temp = attackingTeam;
@@ -84,17 +86,76 @@ public class Match {
                 defendingTeam = temp;
             }
 
-            currentState = finalState;
+            currentState = (finalState == PhaseState.GOAL || finalState == PhaseState.OWN_GOAL)
+                    ? PhaseState.KICKOFF
+                    : finalState;
+        }
+
+        int allowedStoppage = (int) Math.round(stoppageTime);
+        int stoppageEndMinute = 90 + allowedStoppage;
+
+        while (currentMinute < stoppageEndMinute) {
+            PhaseState finalState = phaseSimulator.simulatePhase(currentState, attackingTeam, defendingTeam, this);
+            int duration = phaseSimulator.decidePhaseDuration(finalState);
+
+            currentMinute += duration;
+
+            if (isPossessionChange(finalState)) {
+                Team temp = attackingTeam;
+                attackingTeam = defendingTeam;
+                defendingTeam = temp;
+            }
+
+            currentState = (finalState == PhaseState.GOAL || finalState == PhaseState.OWN_GOAL)
+                    ? PhaseState.KICKOFF
+                    : finalState;
         }
 
         finishMatch();
     }
 
-    private boolean isPossessionChange(PhaseState state) {
-        // TODO: adevarat pentru Dispossession, Goal Kick Awarded, Throw-in Won etc.
-        return false;
+    private double calculateStoppageContribution(PhaseState finalState, int duration) {
+        double contribution = 0;
+
+        if (duration > 1) {
+            contribution += (duration - 1);
+        }
+
+        switch (finalState) {
+            case GOAL:
+            case OWN_GOAL:
+                contribution += 0.5;
+                break;
+            default:
+                break;
+        }
+
+        return contribution;
     }
 
+    private boolean isPossessionChange(PhaseState state) {
+        return switch (state) {
+            case DISPOSSESSION, GOAL_KICK, GOAL, OWN_GOAL -> true;
+            default -> false;
+        };
+    }
+
+    public void addOwnGoal(Player scorer) {
+        validateNotFinished();
+
+        Team scoringTeam;
+        if (homeOnField.contains(scorer)) {
+            awayScore++;
+            scoringTeam = awayTeam;
+        } else if (awayOnField.contains(scorer)) {
+            homeScore++;
+            scoringTeam = homeTeam;
+        } else {
+            throw new IllegalArgumentException(scorer.getFullName() + " is not currently on the field!");
+        }
+
+        events.add(new Goal(currentMinute, scoringTeam, scorer, null, true));
+    }
 
     public void addGoal(Player scorer, Player assistant) {
         validateNotFinished();
@@ -117,7 +178,7 @@ public class Match {
         addGoal(scorer, null);
     }
 
-    public void addCard( Person offender, CardType type) {
+    public void addCard(Person offender, CardType type) {
         validateNotFinished();
 
         boolean isHomeOffender = offender instanceof Player && homeOnField.contains(offender);
@@ -136,7 +197,6 @@ public class Match {
             homeOnField.remove(offender);
             awayOnField.remove(offender);
         }
-
     }
 
     public void recordFoul(Team team) {
@@ -166,7 +226,6 @@ public class Match {
         // TODO: actualizăm clasamentul (puncte, gol-averaj) — probabil prin clasa Standings/Championship
     }
 
-
     public Team getHomeTeam() { return homeTeam; }
     public Team getAwayTeam() { return awayTeam; }
     public Stadium getStadium() { return stadium; }
@@ -177,6 +236,7 @@ public class Match {
     public List<Player> getHomeLineup() { return homeLineup; }
     public List<Player> getAwayLineup() { return awayLineup; }
     public List<MatchEvent> getEvents() { return events; }
+    public int getCurrentMinute() { return currentMinute; }
 
     public int getHomeShotsTotal() { return homeShotsTotal; }
     public int getHomeShotsOnTarget() { return homeShotsOnTarget; }

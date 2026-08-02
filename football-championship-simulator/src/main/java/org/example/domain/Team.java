@@ -17,6 +17,9 @@ public class Team {
     private final Set<Player> currentSquad;
     private List<Player> startingLineUp;
 
+    private Player penaltyTaker;
+    private Player cornerTaker;
+    private Player freeKickTaker;
 
     public Team(String name, String country, int foundedYear, Stadium stadium, BigDecimal transferBudget, Coach coach) {
         this.id = UUID.randomUUID();
@@ -112,6 +115,74 @@ public class Team {
             }
         }
         throw new IllegalStateException("No free kit numbers available in " + name);
+    }
+
+    public Player getPenaltyTaker() {
+        if (penaltyTaker == null || !currentSquad.contains(penaltyTaker)) {
+            penaltyTaker = findDefaultTaker("shooting");
+        }
+        return penaltyTaker;
+    }
+
+    public void setPenaltyTaker(Player player) {
+        validateTakerInSquad(player);
+        this.penaltyTaker = player;
+    }
+
+    public Player getCornerTaker() {
+        if (cornerTaker == null || !currentSquad.contains(cornerTaker)) {
+            cornerTaker = findDefaultTaker("passing");
+        }
+        return cornerTaker;
+    }
+
+    public void setCornerTaker(Player player) {
+        validateTakerInSquad(player);
+        this.cornerTaker = player;
+    }
+
+    public Player getFreeKickTaker() {
+        if (freeKickTaker == null || !currentSquad.contains(freeKickTaker)) {
+            freeKickTaker = findDefaultTaker("passing");
+        }
+        return freeKickTaker;
+    }
+
+    public void setFreeKickTaker(Player player) {
+        validateTakerInSquad(player);
+        this.freeKickTaker = player;
+    }
+
+    private void validateTakerInSquad(Player player) {
+        if (!currentSquad.contains(player)) {
+            throw new IllegalArgumentException(player.getFullName() + " is not part of " + name + "'s squad");
+        }
+    }
+
+    private Player findDefaultTaker(String attribute) {
+        Player best = null;
+        int bestValue = -1;
+
+        for (Player player : startingLineUp) {
+            if (player.getPosition() == Position.GOALKEEPER) continue;
+
+            int value = switch (attribute) {
+                case "shooting" -> player.getShooting();
+                case "passing" -> player.getPassing();
+                default -> 0;
+            };
+
+            if (value > bestValue) {
+                best = player;
+                bestValue = value;
+            }
+        }
+
+        if (best == null && !startingLineUp.isEmpty()) {
+            best = startingLineUp.get(0);
+        }
+
+        return best;
     }
 
     public UUID getId() { return id; }

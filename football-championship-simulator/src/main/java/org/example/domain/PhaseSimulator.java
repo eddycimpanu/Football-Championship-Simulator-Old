@@ -28,6 +28,8 @@ public class PhaseSimulator {
                 return simulateCross(attackingTeam, defendingTeam, match);
             case FOUL:
                 return simulateFoul(attackingTeam, defendingTeam, match);
+            case PENALTY:
+                return simulatePenalty(attackingTeam, defendingTeam, match);
             case SHOOT:
                 return simulateShot(attackingTeam, defendingTeam, match);
             default:
@@ -35,44 +37,146 @@ public class PhaseSimulator {
         }
     }
 
+
     private PhaseState simulateAttack(Team attackingTeam, Team defendingTeam, Match match) {
         double attackSkill = withLuckFactor(getTeamAverageSkill(attackingTeam, "passing"));
         double defenseSkill = withLuckFactor(getTeamAverageSkill(defendingTeam, "defending"));
 
         RouletteWheel<PhaseState> wheel = new RouletteWheel<PhaseState>()
-                .add(PhaseState.SHOOT, Math.max(2 + attackSkill * 0.35 - defenseSkill * 0.15, 1))
+                .add(PhaseState.SHOOT, Math.max(4 + attackSkill * 0.45 - defenseSkill * 0.15, 1))
                 .add(PhaseState.FOUL, Math.max(10 + defenseSkill * 0.1, 1))
-                .add(PhaseState.OFFSIDE, Math.max(3, 1))
+                .add(PhaseState.FREE_KICK, Math.max(13, 1))
                 .add(PhaseState.DISPOSSESSION, Math.max(20 + defenseSkill * 0.4 - attackSkill * 0.3, 1))
-                .add(PhaseState.THROW_IN_WON, Math.max(12, 1))
-                .add(PhaseState.CORNER_WON, Math.max(9, 1))
-                .add(PhaseState.GOAL_KICK_AWARDED, Math.max(2, 1));
+                .add(PhaseState.THROW_IN, Math.max(12, 1))
+                .add(PhaseState.CORNER, Math.max(9, 1))
+                .add(PhaseState.GOAL_KICK, Math.max(2, 1))
+                .add(PhaseState.OWN_GOAL, Math.max(0.3, 0.1));
 
         PhaseState result = wheel.spin(random);
 
         if (result == PhaseState.FOUL) {
             match.recordFoul(attackingTeam);
-        } else if (result == PhaseState.OFFSIDE) {
-            match.recordOffside(attackingTeam);
+        } else if (result == PhaseState.FREE_KICK) {
+            boolean isOffside = random.nextInt(100) < 25;
+            if (isOffside) {
+                match.recordOffside(attackingTeam);
+            }
+        } else if (result == PhaseState.OWN_GOAL) {
+            Player ownGoalScorer = pickHeaderShooter(match.getOnFieldPlayers(defendingTeam));
+            match.addOwnGoal(ownGoalScorer);
+            return PhaseState.GOAL;
         }
 
         return result;
     }
 
     private PhaseState simulateFreeKick(Team attackingTeam, Team defendingTeam, Match match) {
-        // TODO: decideFreeKickAction() -> shoot / cross / short pass (-> Attack)
-        return null;
+        Player taker = attackingTeam.getFreeKickTaker();
+
+        RouletteWheel<String> wheel = new RouletteWheel<String>()
+                .add("shoot", Math.max(15 + taker.getShooting() * 0.2, 1))
+                .add("cross", Math.max(40, 1))
+                .add("shortPass", Math.max(35, 1));
+
+        String choice = wheel.spin(random);
+
+        return switch (choice) {
+            case "shoot" -> resolveDirectShot(defendingTeam, match, taker);
+            case "cross" -> resolveCross(attackingTeam, defendingTeam, match, taker);
+            default -> PhaseState.ATTACK;
+        };
     }
 
     private PhaseState simulateCorner(Team attackingTeam, Team defendingTeam, Match match) {
-        // TODO: decideCornerAction() -> cross / short pass (-> Attack)
-        // match.recordCorner(attackingTeam);
-        return null;
+        match.recordCorner(attackingTeam);
+
+        Player taker = attackingTeam.getCornerTaker();
+
+        boolean isCross = random.nextInt(100) < 75;
+        if (!isCross) {
+            return PhaseState.ATTACK;
+        }
+
+        return resolveCross(attackingTeam, defendingTeam, match, taker);
     }
 
     private PhaseState simulateCross(Team attackingTeam, Team defendingTeam, Match match) {
-        // TODO: decideCrossOutcome() -> defended / foul / own goal
-        return null;
+        Player crosser = attackingTeam.getCornerTaker();
+        return resolveCross(attackingTeam, defendingTeam, match, crosser);
+    }
+
+    private PhaseState simulatePenalty(Team attackingTeam, Team defendingTeam, Match match) {
+        Player taker = attackingTeam.getPenaltyTaker();
+        return resolveDirectShot(defendingTeam, match, taker);
+    }
+
+    private PhaseState resolveCross(Team attackingTeam, Team defendingTeam, Match match, Player crosser) {
+        double crossSkill = withLuckFactor(crosser.getPassing());
+        double aerialDefenseSkill = withLuckFactor(getTeamAverageSkill(defendingTeam, "defending"));
+
+        RouletteWheel<String> wheel = new RouletteWheel<String>()
+                .add("defended", Math.max(45 + aerialDefenseSkill * 0.3 - crossSkill * 0.2, 1))
+                .add("headerShot", Math.max(35 + crossSkill * 0.3 - aerialDefenseSkill * 0.15, 1))
+                .add("foul", Math.max(10, 1))
+                .add("ownGoal", Math.max(0.5, 0.1));
+
+        String outcome = wheel.spin(random);
+
+        switch (outcome) {
+            case "defended":
+                return PhaseState.DISPOSSESSION;
+            case "foul": {
+                Player offender = pickFoulOffender(match.getOnFieldPlayers(defendingTeam));
+                CardType card = decideCardGiven(offender, match);
+                if (card != null) {
+                    match.addCard(offender, card);
+                }
+                boolean insideBox = random.nextInt(100) < 60;
+                return insideBox ? PhaseState.PENALTY : PhaseState.FREE_KICK;
+            }
+            case "ownGoal": {
+                Player ownGoalScorer = pickHeaderShooter(match.getOnFieldPlayers(defendingTeam));
+                match.addOwnGoal(ownGoalScorer);
+                return PhaseState.GOAL;
+            }
+            case "headerShot": {
+                List<Player> attackingPlayers = match.getOnFieldPlayers(attackingTeam);
+                Player shooter = pickHeaderShooter(attackingPlayers);
+                Player goalkeeper = findGoalkeeper(match.getOnFieldPlayers(defendingTeam));
+
+                ShotResult result = decideShotOutcome(shooter, goalkeeper);
+                switch (result) {
+                    case GOAL:
+                        match.addGoal(shooter, crosser);
+                        return PhaseState.GOAL;
+                    case SAVE:
+                        return decideReboundOutcome();
+                    case MISS:
+                        return PhaseState.GOAL_KICK;
+                    default:
+                        throw new IllegalStateException("Unhandled shot result: " + result);
+                }
+            }
+            default:
+                throw new IllegalStateException("Unhandled cross outcome: " + outcome);
+        }
+    }
+
+    private PhaseState resolveDirectShot(Team defendingTeam, Match match, Player shooter) {
+        Player goalkeeper = findGoalkeeper(match.getOnFieldPlayers(defendingTeam));
+        ShotResult result = decideShotOutcome(shooter, goalkeeper);
+
+        switch (result) {
+            case GOAL:
+                match.addGoal(shooter);
+                return PhaseState.GOAL;
+            case SAVE:
+                return decideReboundOutcome();
+            case MISS:
+                return PhaseState.GOAL_KICK;
+            default:
+                throw new IllegalStateException("Unhandled shot result: " + result);
+        }
     }
 
     private PhaseState simulateFoul(Team attackingTeam, Team defendingTeam, Match match) {
@@ -85,11 +189,7 @@ public class PhaseSimulator {
             match.addCard(offender, card);
         }
 
-        if (insideBox) {
-            return PhaseState.PENALTY;
-        } else {
-            return PhaseState.FREE_KICK_WON;
-        }
+        return insideBox ? PhaseState.PENALTY : PhaseState.FREE_KICK;
     }
 
     private Player pickFoulOffender(List<Player> players) {
@@ -112,7 +212,7 @@ public class PhaseSimulator {
         int roll = random.nextInt(100);
 
         if (roll < 75) {
-            return null; // fara cartonas
+            return null;
         }
 
         boolean isSecondYellow = countYellowCardsThisMatch(offender, match) >= 1;
@@ -154,7 +254,7 @@ public class PhaseSimulator {
             case SAVE:
                 return decideReboundOutcome();
             case MISS:
-                return PhaseState.GOAL_KICK_AWARDED;
+                return PhaseState.GOAL_KICK;
             default:
                 throw new IllegalStateException("Unhandled shot result: " + result);
         }
@@ -169,6 +269,22 @@ public class PhaseSimulator {
                 case MIDFIELDER -> 25;
                 case DEFENDER -> 8;
                 case GOALKEEPER -> 1;
+            };
+            wheel.add(player, weight);
+        }
+
+        return wheel.spin(random);
+    }
+
+    private Player pickHeaderShooter(List<Player> players) {
+        RouletteWheel<Player> wheel = new RouletteWheel<>();
+
+        for (Player player : players) {
+            double weight = switch (player.getPosition()) {
+                case ATTACKER -> 35;
+                case DEFENDER -> 35;
+                case MIDFIELDER -> 25;
+                case GOALKEEPER -> 3;
             };
             wheel.add(player, weight);
         }
@@ -210,7 +326,7 @@ public class PhaseSimulator {
     private PhaseState decideReboundOutcome() {
         RouletteWheel<PhaseState> wheel = new RouletteWheel<PhaseState>()
                 .add(PhaseState.ATTACK, Math.max(35, 1))
-                .add(PhaseState.CORNER_WON, Math.max(40, 1))
+                .add(PhaseState.CORNER, Math.max(40, 1))
                 .add(PhaseState.DISPOSSESSION, Math.max(25, 1));
 
         return wheel.spin(random);
@@ -220,9 +336,9 @@ public class PhaseSimulator {
         double shooterSkill = withLuckFactor(shooter.getShooting());
         double goalkeeperSkill = withLuckFactor(goalkeeper.getGoalkeeping());
 
-        double missFitness = 55 - shooterSkill * 0.15;
-        double saveFitness = 20 + goalkeeperSkill * 0.35;
-        double goalFitness = 10 + shooterSkill * 0.15 - goalkeeperSkill * 0.15;
+        double missFitness = 52 - shooterSkill * 0.15;
+        double saveFitness = 22 + goalkeeperSkill * 0.32;
+        double goalFitness = 11 + shooterSkill * 0.17 - goalkeeperSkill * 0.13;
 
         RouletteWheel<ShotResult> wheel = new RouletteWheel<ShotResult>()
                 .add(ShotResult.MISS, Math.max(missFitness, 1))
@@ -260,15 +376,9 @@ public class PhaseSimulator {
         switch (finalState) {
             case GOAL:
             case OWN_GOAL:
-                return 1 + random.nextInt(2); // 1-2 minute (sarbatorire, reluare joc)
-            case FREE_KICK_WON:
-            case CORNER_WON:
-            case THROW_IN_WON:
-            case GOAL_KICK_AWARDED:
-                return 1;
+                return 1 + random.nextInt(2);
             default:
                 return 1;
         }
     }
-
 }
