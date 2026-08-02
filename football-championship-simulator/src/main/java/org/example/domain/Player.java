@@ -11,6 +11,11 @@ public class Player extends Person {
     private Team currentTeam;
     private final List<PlayerSeasonStats> historyStats;
 
+    private int shooting;
+    private int passing;
+    private int defending;
+    private int goalkeeping;
+
     public Player(String firstName, String lastName, String nationality, LocalDate dateOfBirth, Position position, int kitNumber) {
         super(firstName, lastName, nationality, dateOfBirth);
         this.position = position;
@@ -56,4 +61,16 @@ public class Player extends Person {
     public List<PlayerSeasonStats> getHistoryStats() {
         return historyStats;
     }
+
+    public int getShooting() { return shooting; }
+    public void setShooting(int shooting) { this.shooting = shooting; }
+
+    public int getPassing() { return passing; }
+    public void setPassing(int passing) { this.passing = passing; }
+
+    public int getDefending() { return defending; }
+    public void setDefending(int defending) { this.defending = defending; }
+
+    public int getGoalkeeping() { return goalkeeping; }
+    public void setGoalkeeping(int goalkeeping) { this.goalkeeping = goalkeeping; }
 }

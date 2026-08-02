@@ -11,8 +11,8 @@ public class Goal extends MatchEvent {
         this.assistant = assistant;
     }
 
-    public Goal(int minute, Player scorer) {
-        this(minute, scorer, null);
+    public Goal(int minute, Team team, Player scorer) {
+        this(minute, team, scorer, null);
     }
 
     public Player getScorer() { return scorer; }

@@ -5,6 +5,8 @@ import java.util.List;
 
 public class Match {
 
+    private int currentMinute;
+
     private final Team homeTeam;
     private final Team awayTeam;
     private final Stadium stadium;
@@ -68,13 +70,13 @@ public class Match {
         PhaseState currentState = PhaseState.KICKOFF;
         Team attackingTeam = homeTeam;
         Team defendingTeam = awayTeam;
-        int minute = 0;
+        this.currentMinute = 0;
         PhaseSimulator phaseSimulator = new PhaseSimulator();
 
-        while (minute < 90) {
-            PhaseState finalState = phaseSimulator.simulatePhase(currentState, attackingTeam, defendingTeam, this, minute);
+        while (currentMinute < 90) {
+            PhaseState finalState = phaseSimulator.simulatePhase(currentState, attackingTeam, defendingTeam, this);
 
-            minute += phaseSimulator.decidePhaseDuration(finalState);
+            currentMinute += phaseSimulator.decidePhaseDuration(finalState);
 
             if (isPossessionChange(finalState)) {
                 Team temp = attackingTeam;
@@ -94,7 +96,7 @@ public class Match {
     }
 
 
-    public void addGoal(int minute, Player scorer, Player assistant) {
+    public void addGoal(Player scorer, Player assistant) {
         validateNotFinished();
 
         Team scoringTeam;
@@ -108,24 +110,21 @@ public class Match {
             throw new IllegalArgumentException(scorer.getFullName() + " is not currently on the field!");
         }
 
-        events.add(new Goal(minute, scoringTeam, scorer, assistant));
-
-        // TODO: actualizăm PlayerSeasonStats pentru scorer (addGoal) și assistant (addAssist),
-        // odată ce avem legătura Match -> Season
+        events.add(new Goal(currentMinute, scoringTeam, scorer, assistant));
     }
 
-    public void addGoal(int minute, Player scorer) {
-        addGoal(minute, scorer, null);
+    public void addGoal(Player scorer) {
+        addGoal(scorer, null);
     }
 
-    public void addCard(int minute, Person offender, CardType type) {
+    public void addCard( Person offender, CardType type) {
         validateNotFinished();
 
         boolean isHomeOffender = offender instanceof Player && homeOnField.contains(offender);
         boolean isAwayOffender = offender instanceof Player && awayOnField.contains(offender);
         Team offenderTeam = isHomeOffender ? homeTeam : (isAwayOffender ? awayTeam : null);
 
-        events.add(new Card(minute, offenderTeam, (Player) offender, type));
+        events.add(new Card(currentMinute, offenderTeam, (Player) offender, type));
 
         if (type == CardType.YELLOW) {
             if (isHomeOffender) homeYellowCards++;
@@ -138,8 +137,6 @@ public class Match {
             awayOnField.remove(offender);
         }
 
-        // TODO: al doilea galben -> roșu automat
-        // TODO: actualizăm PlayerSeasonStats (addYellowCard / addRedCard)
     }
 
     public void recordFoul(Team team) {
@@ -196,4 +193,8 @@ public class Match {
     public int getAwayOffsides() { return awayOffsides; }
     public int getAwayYellowCards() { return awayYellowCards; }
     public int getAwayRedCards() { return awayRedCards; }
+
+    public List<Player> getOnFieldPlayers(Team team) {
+        return (team == homeTeam) ? homeOnField : awayOnField;
+    }
 }
