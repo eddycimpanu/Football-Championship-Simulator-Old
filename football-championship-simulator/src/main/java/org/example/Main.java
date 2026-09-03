@@ -4,14 +4,15 @@ import org.example.domain.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Random;
 
 public class Main {
     public static void main(String[] args) {
         Team teamA = createFakeTeam("Team A", 90);
-        Team teamB = createFakeTeam("Team B", 5);
+        Team teamB = createFakeTeam("Team B", 88);
         Referee referee = new Referee("Ref", "Erat", "Romania", LocalDate.of(1980, 1, 1));
 
-        Match match = new Match(teamA, teamB, referee);
+        Match match = new Match(teamA, teamB, referee, new Random());
         match.simulateMatch();
 
         System.out.println("Final score: " + teamA.getName() + " " + match.getHomeScore()
@@ -39,10 +40,7 @@ public class Main {
         for (int i = 0; i < 11; i++) {
             Player player = new Player("Player", "" + (i + 1), "Romania",
                     LocalDate.of(2000, 1, 1), positions[i], i + 1);
-            player.setShooting(baseSkill);
-            player.setPassing(baseSkill);
-            player.setDefending(baseSkill);
-            player.setGoalkeeping(baseSkill);
+            applyPositionSkills(player, positions[i], baseSkill);
             player.transferTo(team);
         }
 
@@ -51,5 +49,38 @@ public class Main {
         }
 
         return team;
+    }
+
+    private static void applyPositionSkills(Player player, Position position, int baseSkill) {
+        switch (position) {
+            case GOALKEEPER -> {
+                player.setShooting(clampSkill(baseSkill - 40));
+                player.setPassing(clampSkill(baseSkill - 20));
+                player.setDefending(clampSkill(baseSkill - 10));
+                player.setGoalkeeping(clampSkill(baseSkill + 5));
+            }
+            case DEFENDER -> {
+                player.setShooting(clampSkill(baseSkill - 30));
+                player.setPassing(clampSkill(baseSkill - 5));
+                player.setDefending(clampSkill(baseSkill + 8));
+                player.setGoalkeeping(clampSkill(baseSkill - 60));
+            }
+            case MIDFIELDER -> {
+                player.setShooting(clampSkill(baseSkill - 10));
+                player.setPassing(clampSkill(baseSkill + 8));
+                player.setDefending(clampSkill(baseSkill - 5));
+                player.setGoalkeeping(clampSkill(baseSkill - 60));
+            }
+            case ATTACKER -> {
+                player.setShooting(clampSkill(baseSkill + 8));
+                player.setPassing(clampSkill(baseSkill - 5));
+                player.setDefending(clampSkill(baseSkill - 30));
+                player.setGoalkeeping(clampSkill(baseSkill - 60));
+            }
+        }
+    }
+
+    private static int clampSkill(int value) {
+        return Math.max(1, Math.min(99, value));
     }
 }

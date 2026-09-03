@@ -1,17 +1,14 @@
 package org.example.domain;
 
-public abstract class MatchEvent {
+public sealed interface MatchEvent permits
+        ShotAttempt, PassAttempt, Foul, CardShown, GoalScored, OwnGoal,
+        Save, Corner, Offside, TackleWon, Interception, PenaltyAwarded {
 
-    private final int minute;
-    private final Team team;
+    int minute();
+    int second();
+    Team team();
+    Player primaryPlayer();
+    Player secondaryPlayer();
 
-    protected MatchEvent(int minute, Team team) {
-        this.minute = minute;
-        this.team = team;
-    }
-
-    public int getMinute() { return minute; }
-    public Team getTeam() { return team; }
-
-    public abstract String describe();
+    String describe();
 }

@@ -2,15 +2,21 @@ package org.example.domain;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 public class Match {
 
-    private int currentMinute;
+    private static final int REGULATION_MINUTES = 90;
+    private static final int SECONDS_PER_MINUTE = 60;
+
+    private int elapsedSeconds;
+    private int regulationElapsedSeconds;
 
     private final Team homeTeam;
     private final Team awayTeam;
     private final Stadium stadium;
     private final Referee referee;
+    private final Random random;
 
     private final List<Player> homeLineup;
     private final List<Player> awayLineup;
@@ -19,29 +25,13 @@ public class Match {
 
     private final List<MatchEvent> events;
 
-    private int homeScore;
-    private int awayScore;
     private boolean isFinished;
 
-    // statistici home
-    private int homeShotsTotal;
-    private int homeShotsOnTarget;
-    private int homeCorners;
-    private int homeFouls;
-    private int homeOffsides;
-    private int homeYellowCards;
-    private int homeRedCards;
+    private Team attackingTeam;
+    private Team defendingTeam;
+    private PhaseState currentState;
 
-    // statistici away
-    private int awayShotsTotal;
-    private int awayShotsOnTarget;
-    private int awayCorners;
-    private int awayFouls;
-    private int awayOffsides;
-    private int awayYellowCards;
-    private int awayRedCards;
-
-    public Match(Team homeTeam, Team awayTeam, Referee referee) {
+    public Match(Team homeTeam, Team awayTeam, Referee referee, Random random) {
         if (!homeTeam.isValidLineup()) {
             throw new IllegalStateException("Home team " + homeTeam.getName() + " does not have a valid starting lineup!");
         }
@@ -52,6 +42,7 @@ public class Match {
         this.homeTeam = homeTeam;
         this.awayTeam = awayTeam;
         this.referee = referee;
+        this.random = random;
         this.stadium = homeTeam.getStadium();
 
         this.homeLineup = new ArrayList<>(homeTeam.getStartingLineUp());
@@ -60,77 +51,50 @@ public class Match {
         this.awayOnField = new ArrayList<>(awayLineup);
 
         this.events = new ArrayList<>();
-        this.homeScore = 0;
-        this.awayScore = 0;
         this.isFinished = false;
     }
 
     public void simulateMatch() {
-        PhaseState currentState = PhaseState.KICKOFF;
-        Team attackingTeam = homeTeam;
-        Team defendingTeam = awayTeam;
-        this.currentMinute = 0;
-        double stoppageTime = 0;
-        PhaseSimulator phaseSimulator = new PhaseSimulator();
+        currentState = PhaseState.KICKOFF;
+        attackingTeam = homeTeam;
+        defendingTeam = awayTeam;
+        this.elapsedSeconds = 0;
+        PhaseSimulator phaseSimulator = new PhaseSimulator(random);
 
-        while (currentMinute < 90) {
-            PhaseState finalState = phaseSimulator.simulatePhase(currentState, attackingTeam, defendingTeam, this);
-            int duration = phaseSimulator.decidePhaseDuration(finalState);
+        int stoppageSeconds = simulatePeriod(phaseSimulator, REGULATION_MINUTES * SECONDS_PER_MINUTE, true);
+        this.regulationElapsedSeconds = elapsedSeconds;
 
-            currentMinute += duration;
-            stoppageTime += calculateStoppageContribution(finalState, duration);
-
-            if (isPossessionChange(finalState)) {
-                Team temp = attackingTeam;
-                attackingTeam = defendingTeam;
-                defendingTeam = temp;
-            }
-
-            currentState = (finalState == PhaseState.GOAL || finalState == PhaseState.OWN_GOAL)
-                    ? PhaseState.KICKOFF
-                    : finalState;
-        }
-
-        int allowedStoppage = (int) Math.round(stoppageTime);
-        int stoppageEndMinute = 90 + allowedStoppage;
-
-        while (currentMinute < stoppageEndMinute) {
-            PhaseState finalState = phaseSimulator.simulatePhase(currentState, attackingTeam, defendingTeam, this);
-            int duration = phaseSimulator.decidePhaseDuration(finalState);
-
-            currentMinute += duration;
-
-            if (isPossessionChange(finalState)) {
-                Team temp = attackingTeam;
-                attackingTeam = defendingTeam;
-                defendingTeam = temp;
-            }
-
-            currentState = (finalState == PhaseState.GOAL || finalState == PhaseState.OWN_GOAL)
-                    ? PhaseState.KICKOFF
-                    : finalState;
-        }
+        int stoppageEndSeconds = REGULATION_MINUTES * SECONDS_PER_MINUTE + stoppageSeconds;
+        simulatePeriod(phaseSimulator, stoppageEndSeconds, false);
 
         finishMatch();
     }
 
-    private double calculateStoppageContribution(PhaseState finalState, int duration) {
-        double contribution = 0;
+    private int simulatePeriod(PhaseSimulator phaseSimulator, int toSeconds, boolean accumulateStoppage) {
+        int stoppageSeconds = 0;
 
-        if (duration > 1) {
-            contribution += (duration - 1);
+        while (elapsedSeconds < toSeconds) {
+            int eventsBefore = events.size();
+            PhaseState finalState = phaseSimulator.simulatePhase(currentState, attackingTeam, defendingTeam, this);
+            List<MatchEvent> phaseEvents = events.subList(eventsBefore, events.size());
+
+            elapsedSeconds += phaseSimulator.decidePhaseDuration(phaseEvents);
+            if (accumulateStoppage) {
+                stoppageSeconds += phaseSimulator.decideDeadTimeSeconds(phaseEvents);
+            }
+
+            if (isPossessionChange(finalState)) {
+                Team temp = attackingTeam;
+                attackingTeam = defendingTeam;
+                defendingTeam = temp;
+            }
+
+            currentState = (finalState == PhaseState.GOAL || finalState == PhaseState.OWN_GOAL)
+                    ? PhaseState.KICKOFF
+                    : finalState;
         }
 
-        switch (finalState) {
-            case GOAL:
-            case OWN_GOAL:
-                contribution += 0.5;
-                break;
-            default:
-                break;
-        }
-
-        return contribution;
+        return stoppageSeconds;
     }
 
     private boolean isPossessionChange(PhaseState state) {
@@ -140,78 +104,14 @@ public class Match {
         };
     }
 
-    public void addOwnGoal(Player scorer) {
+    public void recordEvent(MatchEvent event) {
         validateNotFinished();
+        events.add(event);
 
-        Team scoringTeam;
-        if (homeOnField.contains(scorer)) {
-            awayScore++;
-            scoringTeam = awayTeam;
-        } else if (awayOnField.contains(scorer)) {
-            homeScore++;
-            scoringTeam = homeTeam;
-        } else {
-            throw new IllegalArgumentException(scorer.getFullName() + " is not currently on the field!");
+        if (event instanceof CardShown card && card.cardType() == CardType.RED) {
+            homeOnField.remove(card.primaryPlayer());
+            awayOnField.remove(card.primaryPlayer());
         }
-
-        events.add(new Goal(currentMinute, scoringTeam, scorer, null, true));
-    }
-
-    public void addGoal(Player scorer, Player assistant) {
-        validateNotFinished();
-
-        Team scoringTeam;
-        if (homeOnField.contains(scorer)) {
-            homeScore++;
-            scoringTeam = homeTeam;
-        } else if (awayOnField.contains(scorer)) {
-            awayScore++;
-            scoringTeam = awayTeam;
-        } else {
-            throw new IllegalArgumentException(scorer.getFullName() + " is not currently on the field!");
-        }
-
-        events.add(new Goal(currentMinute, scoringTeam, scorer, assistant));
-    }
-
-    public void addGoal(Player scorer) {
-        addGoal(scorer, null);
-    }
-
-    public void addCard(Person offender, CardType type) {
-        validateNotFinished();
-
-        boolean isHomeOffender = offender instanceof Player && homeOnField.contains(offender);
-        boolean isAwayOffender = offender instanceof Player && awayOnField.contains(offender);
-        Team offenderTeam = isHomeOffender ? homeTeam : (isAwayOffender ? awayTeam : null);
-
-        events.add(new Card(currentMinute, offenderTeam, (Player) offender, type));
-
-        if (type == CardType.YELLOW) {
-            if (isHomeOffender) homeYellowCards++;
-            else if (isAwayOffender) awayYellowCards++;
-        } else if (type == CardType.RED) {
-            if (isHomeOffender) homeRedCards++;
-            else if (isAwayOffender) awayRedCards++;
-
-            homeOnField.remove(offender);
-            awayOnField.remove(offender);
-        }
-    }
-
-    public void recordFoul(Team team) {
-        if (team == homeTeam) homeFouls++;
-        else awayFouls++;
-    }
-
-    public void recordCorner(Team team) {
-        if (team == homeTeam) homeCorners++;
-        else awayCorners++;
-    }
-
-    public void recordOffside(Team team) {
-        if (team == homeTeam) homeOffsides++;
-        else awayOffsides++;
     }
 
     private void validateNotFinished() {
@@ -230,29 +130,75 @@ public class Match {
     public Team getAwayTeam() { return awayTeam; }
     public Stadium getStadium() { return stadium; }
     public Referee getReferee() { return referee; }
-    public int getHomeScore() { return homeScore; }
-    public int getAwayScore() { return awayScore; }
     public boolean isFinished() { return isFinished; }
     public List<Player> getHomeLineup() { return homeLineup; }
     public List<Player> getAwayLineup() { return awayLineup; }
     public List<MatchEvent> getEvents() { return events; }
-    public int getCurrentMinute() { return currentMinute; }
+    public int getCurrentMinute() { return elapsedSeconds / SECONDS_PER_MINUTE; }
+    public int getCurrentSecond() { return elapsedSeconds % SECONDS_PER_MINUTE; }
+    public int getRegulationElapsedSeconds() { return regulationElapsedSeconds; }
 
-    public int getHomeShotsTotal() { return homeShotsTotal; }
-    public int getHomeShotsOnTarget() { return homeShotsOnTarget; }
-    public int getHomeCorners() { return homeCorners; }
-    public int getHomeFouls() { return homeFouls; }
-    public int getHomeOffsides() { return homeOffsides; }
-    public int getHomeYellowCards() { return homeYellowCards; }
-    public int getHomeRedCards() { return homeRedCards; }
+    public int getHomeScore() { return countGoals(homeTeam); }
+    public int getAwayScore() { return countGoals(awayTeam); }
 
-    public int getAwayShotsTotal() { return awayShotsTotal; }
-    public int getAwayShotsOnTarget() { return awayShotsOnTarget; }
-    public int getAwayCorners() { return awayCorners; }
-    public int getAwayFouls() { return awayFouls; }
-    public int getAwayOffsides() { return awayOffsides; }
-    public int getAwayYellowCards() { return awayYellowCards; }
-    public int getAwayRedCards() { return awayRedCards; }
+    public int getHomeShotsTotal() { return countShots(homeTeam, false); }
+    public int getHomeShotsOnTarget() { return countShots(homeTeam, true); }
+    public int getHomeCorners() { return countEventsForTeam(Corner.class, homeTeam); }
+    public int getHomeFouls() { return countEventsForTeam(Foul.class, homeTeam); }
+    public int getHomeOffsides() { return countEventsForTeam(Offside.class, homeTeam); }
+    public int getHomeYellowCards() { return countCards(homeTeam, CardType.YELLOW); }
+    public int getHomeRedCards() { return countCards(homeTeam, CardType.RED); }
+    public int getHomePenalties() { return countEventsForTeam(PenaltyAwarded.class, homeTeam); }
+
+    public int getAwayShotsTotal() { return countShots(awayTeam, false); }
+    public int getAwayShotsOnTarget() { return countShots(awayTeam, true); }
+    public int getAwayCorners() { return countEventsForTeam(Corner.class, awayTeam); }
+    public int getAwayFouls() { return countEventsForTeam(Foul.class, awayTeam); }
+    public int getAwayOffsides() { return countEventsForTeam(Offside.class, awayTeam); }
+    public int getAwayYellowCards() { return countCards(awayTeam, CardType.YELLOW); }
+    public int getAwayRedCards() { return countCards(awayTeam, CardType.RED); }
+    public int getAwayPenalties() { return countEventsForTeam(PenaltyAwarded.class, awayTeam); }
+
+    private int countGoals(Team team) {
+        int count = 0;
+        for (MatchEvent event : events) {
+            if ((event instanceof GoalScored goal && goal.team() == team)
+                    || (event instanceof OwnGoal ownGoal && ownGoal.team() == team)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int countShots(Team team, boolean onTargetOnly) {
+        int count = 0;
+        for (MatchEvent event : events) {
+            if (event instanceof ShotAttempt shot && shot.team() == team && (!onTargetOnly || shot.isOnTarget())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int countCards(Team team, CardType type) {
+        int count = 0;
+        for (MatchEvent event : events) {
+            if (event instanceof CardShown card && card.team() == team && card.cardType() == type) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private int countEventsForTeam(Class<? extends MatchEvent> type, Team team) {
+        int count = 0;
+        for (MatchEvent event : events) {
+            if (type.isInstance(event) && event.team() == team) {
+                count++;
+            }
+        }
+        return count;
+    }
 
     public List<Player> getOnFieldPlayers(Team team) {
         return (team == homeTeam) ? homeOnField : awayOnField;

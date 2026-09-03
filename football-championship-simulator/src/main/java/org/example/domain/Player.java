@@ -48,10 +48,13 @@ public class Player extends Person {
     }
 
     public void setKitNumber(int kitNumber) {
-        if(this.currentTeam.isKitNumberTaken(kitNumber) == false) {
-            this.kitNumber = kitNumber;
+        if (currentTeam == null) {
+            throw new IllegalStateException(getFullName() + " has no current team, cannot set a kit number");
         }
-        else throw new IllegalStateException("The kit number "+ kitNumber +" is already used");
+        if (currentTeam.isKitNumberTaken(kitNumber)) {
+            throw new IllegalStateException("The kit number " + kitNumber + " is already used");
+        }
+        this.kitNumber = kitNumber;
     }
 
     public Team getCurrentTeam() {
